@@ -5,30 +5,42 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [myanmarText, setMyanmarText] = useState('');
   const [translating, setTranslating] = useState(false);
-  const [dailyData, setDailyData] = useState(null);
-  const [dailyMyanmarText, setDailyMyanmarText] = useState('');
-  const [dailyTranslating, setDailyTranslating] = useState(false);
 
   // Reusable Translation Function (Returns text instead of setting state directly)
   const getTranslation = async (text) => {
     if (!text) return '';
-    // Try Backend API (which hides the Gemini Key)
-    try {
-      const response = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
+    // REVERTED: Direct Client-Side Call for Local Dev
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
-      if (response.status === 429) throw new Error('Rate Limited');
-      if (!response.ok) throw new Error('Backend failed');
+    // Try Gemini first
+    if (apiKey && apiKey !== 'your_gemini_api_key_here') {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: `Translate this to Myanmar (Burmese). Output only the translation:\n\n"${text}"`
+                }]
+              }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 256 }
+            })
+          }
+        );
 
-      const json = await response.json();
-      if (json.translation) {
-        return json.translation;
+        if (response.status === 429) throw new Error('Rate Limited');
+
+        const json = await response.json();
+        if (json.candidates?.[0]?.content?.parts?.[0]?.text) {
+          let translated = json.candidates[0].content.parts[0].text.trim();
+          return translated.replace(/^["']|["']$/g, '');
+        }
+      } catch (err) {
+        console.log('Gemini failed, trying fallback:', err);
       }
-    } catch (err) {
-      console.log('Backend translation failed, trying fallback:', err);
     }
     
     // Fallback to MyMemory
@@ -52,13 +64,7 @@ function App() {
     setTranslating(false);
   };
 
-  // Helper to handle Daily Advice translation
-  const translateDailyAdvice = async (text) => {
-    setDailyTranslating(true);
-    const result = await getTranslation(text);
-    setDailyMyanmarText(result);
-    setDailyTranslating(false);
-  };
+
 
   const fetchAdvice = async () => {
     setLoading(true);
@@ -76,87 +82,13 @@ function App() {
     }
   };
 
-  const fetchDailyAdvice = async () => {
-    // Removed client-side API key access
-    
-    // Check if we have cached daily advice from today
-    const today = new Date().toDateString();
-    const cached = localStorage.getItem('daily_advice_cache');
-    
-    // Use cached if available and from today
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (parsed.date === today) {
-        setDailyData({ advice: parsed.en });
-        setDailyMyanmarText(parsed.my);
-        return;
-      }
-    }
-
-    try {
-      setDailyTranslating(true);
-      const response = await fetch('/api/daily', { method: 'POST' }); // Call our backend
-
-      if (!response.ok) throw new Error('Daily generation failed');
-
-      const result = await response.json();
-      
-      if (result.en && result.my) {
-        setDailyData({ advice: result.en });
-        setDailyMyanmarText(result.my);
-        
-        // Cache for today
-        localStorage.setItem('daily_advice_cache', JSON.stringify({
-          date: today,
-          en: result.en,
-          my: result.my
-        }));
-      }
-    } catch (err) {
-      console.error("Daily Gen Error:", err);
-    } finally {
-      setDailyTranslating(false);
-    }
-  };
 
   useEffect(() => {
     fetchAdvice();
-    fetchDailyAdvice();
   }, []);
 
   return (
     <main className="min-h-screen bg-primary flex flex-col items-center justify-start p-8 md:p-12 gap-8">
-      {/* Daily Advice Card */}
-      {dailyData && (
-        <div className="w-full max-w-2xl">
-          <div className="bg-card border border-default p-6 md:p-8 relative overflow-hidden">
-            {/* "DAILY" Tag */}
-            <div className="absolute top-0 right-0 bg-white text-black font-mono text-[10px] font-bold px-3 py-1 uppercase tracking-widest">
-              Daily
-            </div>
-
-            <p className="font-mono text-xs text-muted tracking-widest uppercase mb-6">
-              Quote of the Day
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg md:text-xl font-light leading-relaxed text-primary tracking-tight">
-                  "{dailyData.advice}"
-                </h2>
-              </div>
-
-              <div className="w-8 h-px bg-elevated"></div>
-
-              <div>
-                <p className={`text-base md:text-lg leading-relaxed font-myanmar ${dailyTranslating ? 'text-muted' : 'text-secondary'}`}>
-                  {dailyTranslating ? '...' : `"${dailyMyanmarText}"`}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Main Random Advice Card */}
       <div className="w-full max-w-2xl">
         <div className="bg-card border border-default p-8 md:p-8 lg:p-16">

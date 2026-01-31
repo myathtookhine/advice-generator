@@ -5,8 +5,10 @@ export default async function handler(request, response) {
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
+  console.log("Daily API Called. Key exists?", !!apiKey); // Debug Log
 
   if (!apiKey) {
+    console.error("Missing API Key in Serverless Function"); // Debug Log
     return response.status(500).json({ error: 'Server API Key missing' });
   }
 
