@@ -12,38 +12,23 @@ function App() {
   // Reusable Translation Function (Returns text instead of setting state directly)
   const getTranslation = async (text) => {
     if (!text) return '';
-    
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    
-    // Try Gemini first
-    if (apiKey && apiKey !== 'your_gemini_api_key_here') {
-      try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{
-                  text: `Translate this to Myanmar (Burmese). Output only the translation:\n\n"${text}"`
-                }]
-              }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 256 }
-            })
-          }
-        );
-        
-        if (response.status === 429) throw new Error('Rate Limited');
-        
-        const json = await response.json();
-        if (json.candidates?.[0]?.content?.parts?.[0]?.text) {
-          let translated = json.candidates[0].content.parts[0].text.trim();
-          return translated.replace(/^["']|["']$/g, '');
-        }
-      } catch (err) {
-        console.log('Gemini failed, trying fallback:', err);
+    // Try Backend API (which hides the Gemini Key)
+    try {
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+
+      if (response.status === 429) throw new Error('Rate Limited');
+      if (!response.ok) throw new Error('Backend failed');
+
+      const json = await response.json();
+      if (json.translation) {
+        return json.translation;
       }
+    } catch (err) {
+      console.log('Backend translation failed, trying fallback:', err);
     }
     
     // Fallback to MyMemory
@@ -92,7 +77,7 @@ function App() {
   };
 
   const fetchDailyAdvice = async () => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    // Removed client-side API key access
     
     // Check if we have cached daily advice from today
     const today = new Date().toDateString();
@@ -108,35 +93,15 @@ function App() {
       }
     }
 
-    if (!apiKey || apiKey === 'your_gemini_api_key_here') return;
-
     try {
       setDailyTranslating(true);
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Generate a short, powerful, inspirational daily quote about life or success. 
-                Provide output in JSON format like this: {"en": "English quote here", "my": "Myanmar translation here"}`
-              }]
-            }],
-            generationConfig: { 
-              responseMimeType: "application/json",
-              temperature: 0.7 
-            }
-          })
-        }
-      );
+      const response = await fetch('/api/daily', { method: 'POST' }); // Call our backend
+
+      if (!response.ok) throw new Error('Daily generation failed');
+
+      const result = await response.json();
       
-      const json = await response.json();
-      const content = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (content) {
-        const result = JSON.parse(content);
+      if (result.en && result.my) {
         setDailyData({ advice: result.en });
         setDailyMyanmarText(result.my);
         
@@ -148,7 +113,7 @@ function App() {
         }));
       }
     } catch (err) {
-      console.error("Gemini Daily Gen Error:", err);
+      console.error("Daily Gen Error:", err);
     } finally {
       setDailyTranslating(false);
     }
